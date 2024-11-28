@@ -1,0 +1,20 @@
+{
+  "profiles": {
+    "SkiaSharpTest": {
+      "commandName": "Project",
+      "environmentVariables": {
+        //"LD_DEBUG": "libs"
+      },
+      "remoteDebugEnabled": false,
+      "nativeDebugging": true
+    },
+    "Docker": {
+      "commandName": "Docker",
+      "DockerfileRunArguments": "--gpus all"
+    },
+    "WSL": {
+      "commandName": "WSL2",
+      "distributionName": ""
+    }
+  }
+}
