@@ -23,7 +23,6 @@ public sealed unsafe class VulkanRenderTarget : ISurface
     private readonly GRBackendRenderTarget _renderTarget;
     
     private CommandPool _commandPool;
-    private ImageView _imageView;
 
     public Image Image => _image;
     
@@ -42,7 +41,6 @@ public sealed unsafe class VulkanRenderTarget : ISurface
 
         CreateImage();
         CreateCommandPool();
-        CreateImageView();
         var requirementsInfo = new ImageMemoryRequirementsInfo2 
         {
             SType = StructureType.ImageMemoryRequirementsInfo2,
@@ -218,134 +216,14 @@ public sealed unsafe class VulkanRenderTarget : ISurface
         }
     }
 
-    private void CreateImageView()
-    {
-        var viewInfo = new ImageViewCreateInfo
-        {
-            SType = StructureType.ImageViewCreateInfo,
-            Image = _image,
-            ViewType = ImageViewType.Type2D,
-            Format = Format.R8G8B8A8Unorm,
-            SubresourceRange = new ImageSubresourceRange
-            {
-                AspectMask = ImageAspectFlags.ColorBit,
-                BaseMipLevel = 0,
-                LevelCount = 1,
-                BaseArrayLayer = 0,
-                LayerCount = 1
-            }
-        };
-
-        fixed (ImageView* viewPtr = &_imageView)
-        {
-            if (_vk.CreateImageView(_device, in viewInfo, null, viewPtr) != Result.Success)
-                throw new Exception("Failed to create image view");
-        }
-    }
-
-    public CommandBuffer BeginSingleTimeCommands()
-    {
-        var allocInfo = new CommandBufferAllocateInfo
-        {
-            SType = StructureType.CommandBufferAllocateInfo,
-            Level = CommandBufferLevel.Primary,
-            CommandPool = _commandPool,
-            CommandBufferCount = 1
-        };
-
-        CommandBuffer commandBuffer = default;
-        _vk.AllocateCommandBuffers(_device, in allocInfo, &commandBuffer);
-
-        var beginInfo = new CommandBufferBeginInfo
-        {
-            SType = StructureType.CommandBufferBeginInfo,
-            Flags = CommandBufferUsageFlags.OneTimeSubmitBit
-        };
-
-        _vk.BeginCommandBuffer(commandBuffer, in beginInfo);
-        return commandBuffer;
-    }
-    
-    public void TransitionImageLayout(ImageLayout oldLayout, ImageLayout newLayout, Queue graphicsQueue)
-    {
-        var commandBuffer = BeginSingleTimeCommands();
-
-        var barrier = new ImageMemoryBarrier
-        {
-            SType = StructureType.ImageMemoryBarrier,
-            OldLayout = oldLayout,
-            NewLayout = newLayout,
-            SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
-            DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
-            Image = _image,
-            SubresourceRange = new ImageSubresourceRange
-            {
-                AspectMask = ImageAspectFlags.ColorBit,
-                BaseMipLevel = 0,
-                LevelCount = 1,
-                BaseArrayLayer = 0,
-                LayerCount = 1
-            }
-        };
-
-        PipelineStageFlags sourceStage;
-        PipelineStageFlags destinationStage;
-
-        if (oldLayout == ImageLayout.Undefined && newLayout == ImageLayout.TransferDstOptimal)
-        {
-            barrier.SrcAccessMask = 0;
-            barrier.DstAccessMask = AccessFlags.TransferWriteBit;
-            sourceStage = PipelineStageFlags.TopOfPipeBit;
-            destinationStage = PipelineStageFlags.TransferBit;
-        }
-        else if (oldLayout == ImageLayout.TransferDstOptimal && newLayout == ImageLayout.ShaderReadOnlyOptimal)
-        {
-            barrier.SrcAccessMask = AccessFlags.TransferWriteBit;
-            barrier.DstAccessMask = AccessFlags.ShaderReadBit;
-            sourceStage = PipelineStageFlags.TransferBit;
-            destinationStage = PipelineStageFlags.FragmentShaderBit;
-        }
-        else
-        {
-            throw new Exception($"Unsupported layout transition from {oldLayout} to {newLayout}");
-        }
-
-        _vk.CmdPipelineBarrier(
-            commandBuffer,
-            sourceStage, destinationStage,
-            0,
-            0, null,
-            0, null,
-            1, in barrier);
-
-        EndSingleTimeCommands(commandBuffer, graphicsQueue);
-    }
-
-    private void EndSingleTimeCommands(CommandBuffer commandBuffer, Queue graphicsQueue)
-    {
-        _vk.EndCommandBuffer(commandBuffer);
-
-        var submitInfo = new SubmitInfo
-        {
-            SType = StructureType.SubmitInfo,
-            CommandBufferCount = 1,
-            PCommandBuffers = &commandBuffer
-        };
-
-        _vk.QueueSubmit(graphicsQueue, 1, in submitInfo, default);
-        _vk.QueueWaitIdle(graphicsQueue);
-
-        _vk.FreeCommandBuffers(_device, _commandPool, 1, in commandBuffer);
-    }
-
-    public void* MapMemory()
+    private void* MapMemory()
     {
         void* data;
         _vk.MapMemory(_device, _imageMemory, 0, Vk.WholeSize, 0, &data);
         return data;
     }
 
-    public void UnmapMemory()
+    private void UnmapMemory()
     {
         _vk.UnmapMemory(_device, _imageMemory);
     }
@@ -366,8 +244,8 @@ public sealed unsafe class VulkanRenderTarget : ISurface
 
     public void Flush()
     {
-        _surface.Flush();
-        _grContext.Flush();
+        _surface.Flush(submit: true, synchronous: true);
+        _grContext.Flush(submit: true, synchronous: true);
     }
 
     public void SaveImage(string filePath, SKEncodedImageFormat format, int quality)
@@ -379,7 +257,6 @@ public sealed unsafe class VulkanRenderTarget : ISurface
 
     public void Dispose()
     {
-        _vk.DestroyImageView(_device, _imageView, null);
         _vk.DestroyCommandPool(_device, _commandPool, null);
         _vk.DestroyImage(_device, _image, null);
         _vk.FreeMemory(_device, _imageMemory, null);
