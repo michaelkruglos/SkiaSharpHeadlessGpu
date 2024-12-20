@@ -57,11 +57,13 @@ public sealed class VkSurfaceFactory : IDisposable
         return renderTarget;
     }
 
-    public void Dispose()
+    public unsafe void Dispose()
     {
+        _vk.DestroyDevice(_device, null);
+        _vk.DestroyInstance(_instance, null);
     }
 
-    private unsafe Instance CreateInstance()
+    private static unsafe Instance CreateInstance()
     {
         var vk = Vk.GetApi();
     

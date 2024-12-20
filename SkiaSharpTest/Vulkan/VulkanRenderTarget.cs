@@ -372,6 +372,7 @@ public sealed unsafe class VulkanRenderTarget : ISurface
 
     public void SaveImage(string filePath, SKEncodedImageFormat format, int quality)
     {
+        Flush();
         var bytes = GetBytes(format, quality);
         File.WriteAllBytes(filePath, bytes);
     }
