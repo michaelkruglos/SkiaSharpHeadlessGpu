@@ -13,8 +13,8 @@ using System.Threading.Tasks;
 //using OpenTK.Windowing.Desktop;
 //using OpenTK.Windowing.GraphicsLibraryFramework;
 
-using SharpVk;
-using SharpVk.Khronos;
+// using SharpVk;
+// using SharpVk.Khronos;
 
 using SkiaSharp;
 
@@ -48,7 +48,7 @@ namespace SkiaSharpTest
         private static void RunTest(string[] fileNames, int parallel, bool useVulkan)
         {
             using var factory = new VkSurfaceFactory();
-            Func<string, int, int, SKSurface> method = useVulkan ? (name, w, h) => TestWithVulkanGPU(factory, name, w, h) : TestCpuOnly;
+            Func<string, int, int, ISurface> method = useVulkan ? (name, w, h) => TestWithVulkanGPU(factory, name, w, h) : TestCpuOnly;
             var exceptions = RunConcurrentlyAsync(fileNames, parallel, fileName => method(fileName, 1920, 1080));
             foreach (var item in exceptions)
             {
@@ -56,11 +56,11 @@ namespace SkiaSharpTest
             }
         }
 
-        public static List<(string, Exception)> RunConcurrentlyAsync(IEnumerable<string> items, int concurrencyLimit, Func<string, SKSurface> processItem)
+        public static List<(string, Exception)> RunConcurrentlyAsync(IEnumerable<string> items, int concurrencyLimit, Func<string, ISurface> processItem)
         {
             var errors = new ConcurrentBag<(string, Exception)>();
             var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = concurrencyLimit };
-            var results = new ConcurrentBag<(string, SKSurface)>();
+            var results = new ConcurrentBag<(string, ISurface)>();
 
             Parallel.ForEach(items, parallelOptions, (item, _) =>
             {
@@ -85,10 +85,10 @@ namespace SkiaSharpTest
 
         public static object factoryLock = new object();
 
-        private static SKSurface TestWithVulkanGPU(VkSurfaceFactory factory, string fileName, int width, int height)
+        private static ISurface TestWithVulkanGPU(VkSurfaceFactory factory, string fileName, int width, int height)
         {
             var number = int.Parse(string.Join("", fileName.Where(char.IsDigit)));
-            SKSurface surface;
+            ISurface surface;
             lock (factoryLock)
             {
                 surface = factory.CreateSurface(new SKImageInfo(width, height));
@@ -98,30 +98,28 @@ namespace SkiaSharpTest
             return surface;
         }
 
-        private static SKSurface TestCpuOnly(string fileName, int width, int height)
+        private static ISurface TestCpuOnly(string fileName, int width, int height)
         {
             var number = int.Parse(string.Join("", fileName.Where(char.IsDigit)));
-            var surface = SKSurface.Create(new SKImageInfo(width, height));
+            var surface = new SKSurfaceWrapper(SKSurface.Create(new SKImageInfo(width, height)));
 
             DrawCircle(surface, number, width, height);
             return surface;
         }
 
-        private static void SaveImage(SKSurface surface, string fileName)
+        private static void SaveImage(ISurface surface, string fileName)
         {
-            surface.Flush(submit: true, synchronous: true);
-            using var image = surface.Snapshot().ToRasterImage();
-            using var jpeg = image.Encode(SKEncodedImageFormat.Png, 100);
-            var folder = "./output";
-                // SkiaSharp.Internals.PlatformConfiguration.IsWindows
-                // ? @"D:\DNX\test-output\"
-                // : "./output/";
+            var folder = Path.Join("./output", surface.Name);
 
-            using var outfile = File.OpenWrite(Path.Combine(folder, fileName));
-            jpeg.SaveTo(outfile);
+            if (!Directory.Exists(folder))
+            {
+                Directory.CreateDirectory(folder);
+            }
+
+            surface.SaveImage(Path.Join(folder, fileName), SKEncodedImageFormat.Png, 100);
         }
 
-        private static void DrawCircle(SKSurface surface, int number, int width, int height)
+        private static void DrawCircle(ISurface surface, int number, int width, int height)
         {
             var canvas = surface.Canvas;
             var transparentBlue = new SKColor(0, 0, 255, 0);
@@ -138,14 +136,13 @@ namespace SkiaSharpTest
             {
                 Color = new SKColor((byte)(255 - random.Red), (byte)(255 - random.Green), (byte)(255 - random.Blue), 128),
                 Style = SKPaintStyle.StrokeAndFill,
-                HintingLevel = SKPaintHinting.Full,
                 IsAntialias = true,
-                TextSize = size * 0.5f,
-                TextAlign = SKTextAlign.Center,
-                LcdRenderText = true,
-                Typeface = SKTypeface.Default,
             };
-            canvas.DrawText($"ID: {number}", 400, 400, textPaint);
+
+            var font = new SKFont(SKTypeface.Default, size * 0.5f);
+            font.Edging = SKFontEdging.SubpixelAntialias;
+            font.Hinting = SKFontHinting.Full;
+            canvas.DrawText($"ID: {number}", 400, 400, SKTextAlign.Center, font, textPaint);
         }
 
         private static void MakePicture()
