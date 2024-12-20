@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Dynamic;
 using System.Linq;
 using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
@@ -7,7 +6,7 @@ using SkiaSharp;
 
 namespace SkiaSharpTest.Vulkan;
 
-public sealed class VkSurfaceFactory : IDisposable
+public sealed class VkSurfaceFactory : ISurfaceFactory
 {
     private Vk _vk;
     private Device _device;
