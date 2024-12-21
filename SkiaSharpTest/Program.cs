@@ -4,169 +4,133 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Threading;
 using System.Threading.Tasks;
 
-//using OpenTK.Graphics.ES30;
-//using OpenTK.Mathematics;
-//using OpenTK.Windowing.Desktop;
-//using OpenTK.Windowing.GraphicsLibraryFramework;
-
-// using SharpVk;
-// using SharpVk.Khronos;
-
 using SkiaSharp;
-
+using SkiaSharpTest.Renderer;
 using SkiaSharpTest.Vulkan;
 
-namespace SkiaSharpTest
+namespace SkiaSharpTest;
+
+internal class Program
 {
-    internal class Program
+    static async Task Main(string[] args)
     {
-        static void Main(string[] args)
+        //using var factory = new VkSurfaceFactory();
+        Console.WriteLine("Start!");
+        const string outputDir = "output";
+        var regularDir = Path.Combine(outputDir, "regular");
+        var vulkanDir = Path.Combine(outputDir, "vulkan");
+        var directories = new[] { outputDir, regularDir, vulkanDir };
+        foreach (var directory in directories)
         {
-            //using var factory = new VkSurfaceFactory();
-            Console.WriteLine("Start!");
-            if (!Directory.Exists("output"))
+            if (!Directory.Exists(directory))
             {
-                Directory.CreateDirectory("output");
-            }
-
-            var fileNames = Enumerable.Range(0, 30).Select(i => $"image{i}.png").ToArray();
-            var parallel = int.TryParse(Environment.GetEnvironmentVariable("TEST_PARALLEL"), out var parsed) ? parsed : 10;
-            var sw = Stopwatch.StartNew();
-            RunTest(fileNames, parallel, useVulkan: true);
-            var vkElapsed = sw.Elapsed;
-            sw.Restart();
-            RunTest(fileNames, parallel, useVulkan: false);
-            var cpuElapsed = sw.Elapsed;
-            Console.WriteLine($"Vulkan: {vkElapsed}");
-            Console.WriteLine($"CPU: {cpuElapsed}");
-        }
-
-        private static void RunTest(string[] fileNames, int parallel, bool useVulkan)
-        {
-            using var factory = new VkSurfaceFactory();
-            Func<string, int, int, ISurface> method = useVulkan ? (name, w, h) => TestWithVulkanGPU(factory, name, w, h) : TestCpuOnly;
-            var exceptions = RunConcurrentlyAsync(fileNames, parallel, fileName => method(fileName, 1920, 1080));
-            foreach (var item in exceptions)
-            {
-                Console.WriteLine($"Error {item}");
+                Directory.CreateDirectory(directory!);
             }
         }
 
-        public static List<(string, Exception)> RunConcurrentlyAsync(IEnumerable<string> items, int concurrencyLimit, Func<string, ISurface> processItem)
-        {
-            var errors = new ConcurrentBag<(string, Exception)>();
-            var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = concurrencyLimit };
-            var results = new ConcurrentBag<(string, ISurface)>();
+        var parallelism = int.TryParse(Environment.GetEnvironmentVariable("TEST_PARALLEL"), out var parsed)
+            ? parsed
+            : Environment.ProcessorCount;
 
-            Parallel.ForEach(items, parallelOptions, (item, _) =>
-            {
-                try
+        var skiaFactory = new SkiaSurfaceFactory();
+        var vulkanFactory = new VkSurfaceFactory();
+        var sequentialCpuRenderer = new SequentialRenderer(skiaFactory);
+        var sequentialVkRenderer = new SequentialRenderer(vulkanFactory);
+        var parallelCpuRenderer = new ParallelRenderer(skiaFactory, parallelism);
+        var parallelVkRenderer = new ParallelRenderer(vulkanFactory, parallelism);
+
+        var frameMethods = Enumerable.Range(0, 30)
+            .Select<int, Func<ISurfaceFactory, SKImageInfo, ValueTask<ISurface>>>(i =>
+                async ValueTask<ISurface> (ISurfaceFactory factory, SKImageInfo imageInfo) =>
                 {
-                    var surface = processItem(item);
-                    results.Add((item, surface));
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error Processing item {item}:\n{ex}");
-                    errors.Add((item, ex));
-                }
-            });
+                    try
+                    {
+                        var surface = factory.CreateSurface(imageInfo);
+                        DrawCircle(surface, i, imageInfo.Width, imageInfo.Height);
+                        return surface;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine(ex);
+                        throw;
+                    }
+                })
+            .ToArray();
 
-            foreach (var item in results)
-            {
-                SaveImage(item.Item2, item.Item1);
-            }
-            return errors.OrderBy(x => x.Item1).ToList();
-        }
+        var sw = Stopwatch.StartNew();
+        // await foreach (var result in sequentialCpuRenderer.Render(new SKImageInfo(1920, 1080), frameMethods))
+        // {
+        //     result.Surface.SaveImage(Path.Join(regularDir, $"image{result.FrameIndex}.png"), SKEncodedImageFormat.Png, 100);
+        //     result.Surface.Dispose();
+        // }
+        // Console.WriteLine($"Sequential CPU renderer Elapsed: {sw.Elapsed}");
+        //
+        // sw.Restart();
+        // await foreach (var result in sequentialVkRenderer.Render(new SKImageInfo(1920, 1080), frameMethods))
+        // {
+        //     result.Surface.SaveImage(Path.Join(vulkanDir, $"image{result.FrameIndex}.png"), SKEncodedImageFormat.Png, 100);
+        //     result.Surface.Dispose();
+        // }
+        // Console.WriteLine($"Sequential Vulkan renderer Elapsed: {sw.Elapsed}");
 
-        public static object factoryLock = new object();
-
-        private static ISurface TestWithVulkanGPU(VkSurfaceFactory factory, string fileName, int width, int height)
+        sw.Restart();
+        await foreach (var result in parallelCpuRenderer.Render(new SKImageInfo(1920, 1080), frameMethods))
         {
-            var number = int.Parse(string.Join("", fileName.Where(char.IsDigit)));
-            ISurface surface;
-            lock (factoryLock)
-            {
-                surface = factory.CreateSurface(new SKImageInfo(width, height));
-            }
-
-            DrawCircle(surface, number, width, height);
-            return surface;
+            result.Surface.SaveImage(Path.Join(regularDir, $"image{result.FrameIndex}.png"), SKEncodedImageFormat.Png, 100);
+            Console.WriteLine($"Image {result.FrameIndex} has been saved in {sw.Elapsed}");
+            result.Surface.Dispose();
         }
+        Console.WriteLine($"Parallel CPU renderer Elapsed: {sw.Elapsed}");
 
-        private static ISurface TestCpuOnly(string fileName, int width, int height)
+        sw.Restart();
+        await foreach (var result in parallelVkRenderer.Render(new SKImageInfo(1920, 1080), frameMethods))
         {
-            var number = int.Parse(string.Join("", fileName.Where(char.IsDigit)));
-            var surface = new SKSurfaceWrapper(SKSurface.Create(new SKImageInfo(width, height)));
-
-            DrawCircle(surface, number, width, height);
-            return surface;
+            result.Surface.SaveImage(Path.Join(vulkanDir, $"image{result.FrameIndex}.png"), SKEncodedImageFormat.Png, 100);
+            Console.WriteLine($"Image {result.FrameIndex} has been saved in {sw.Elapsed}");
+            result.Surface.Dispose();
         }
+        Console.WriteLine($"Parallel Vulkan renderer Elapsed: {sw.Elapsed}");
+    }
 
-        private static void SaveImage(ISurface surface, string fileName)
+
+    private static void SaveImage(ISurface surface, string fileName)
+    {
+        var folder = Path.Join("./output", surface.Name);
+
+        if (!Directory.Exists(folder))
         {
-            var folder = Path.Join("./output", surface.Name);
-
-            if (!Directory.Exists(folder))
-            {
-                Directory.CreateDirectory(folder);
-            }
-
-            surface.SaveImage(Path.Join(folder, fileName), SKEncodedImageFormat.Png, 100);
+            Directory.CreateDirectory(folder);
         }
 
-        private static void DrawCircle(ISurface surface, int number, int width, int height)
+        surface.SaveImage(Path.Join(folder, fileName), SKEncodedImageFormat.Png, 100);
+    }
+
+    private static void DrawCircle(ISurface surface, int number, int width, int height)
+    {
+        var canvas = surface.Canvas;
+        var transparentBlue = new SKColor(0, 0, 255, 0);
+        var colorBytes = new byte[3];
+        Random.Shared.NextBytes(colorBytes);
+        var random = new SKColor(colorBytes[0], colorBytes[1], colorBytes[2]);
+        canvas.Clear(transparentBlue);
+        var centerX = width / 2.0f;
+        var centerY = height / 2.0f;
+        var size = Math.Min(width, height) * 0.8f;
+        using var circlePaint = new SKPaint { Color = random, Style = SKPaintStyle.StrokeAndFill, IsAntialias = true };
+        canvas.DrawCircle(centerX - size/2, centerY - size/2, size, circlePaint);
+        random.ToHsl(out var randomHue, out var randomSaturation, out var randomLightness);
+        using var textPaint = new SKPaint
         {
-            var canvas = surface.Canvas;
-            var transparentBlue = new SKColor(0, 0, 255, 0);
-            var colorBytes = new byte[3];
-            Random.Shared.NextBytes(colorBytes);
-            var random = new SKColor(colorBytes[0], colorBytes[1], colorBytes[2]);
-            canvas.Clear(transparentBlue);
-            var centerX = width / 2.0f;
-            var centerY = height / 2.0f;
-            var size = Math.Min(width, height) * 0.8f;
-            using var circlePaint = new SKPaint { Color = random, Style = SKPaintStyle.StrokeAndFill, IsAntialias = true };
-            canvas.DrawCircle(centerX - size/2, centerY - size/2, size, circlePaint);
-            using var textPaint = new SKPaint
-            {
-                Color = new SKColor((byte)(255 - random.Red), (byte)(255 - random.Green), (byte)(255 - random.Blue), 128),
-                Style = SKPaintStyle.StrokeAndFill,
-                IsAntialias = true,
-            };
+            Color = SKColor.FromHsl(randomHue, randomSaturation, randomLightness > 0.5 ? 0 : 100),
+            Style = SKPaintStyle.StrokeAndFill,
+            IsAntialias = true,
+        };
 
-            var font = new SKFont(SKTypeface.Default, size * 0.5f);
-            font.Edging = SKFontEdging.SubpixelAntialias;
-            font.Hinting = SKFontHinting.Full;
-            canvas.DrawText($"ID: {number}", 400, 400, SKTextAlign.Center, font, textPaint);
-        }
-
-        private static void MakePicture()
-        {
-
-            using var bitmap = new SKBitmap(600, 600);
-            using var canvas = new SKCanvas(bitmap);
-
-            using var pictureRecorder = new SKPictureRecorder();
-            using var recordingCanvas = pictureRecorder.BeginRecording(new SKRect(0, 0, bitmap.Width, bitmap.Height));
-
-            var transparentBlue = new SKColor(0, 0, 255, 0);
-            var violet = new SKColor(155,38,182);
-            recordingCanvas.Clear(transparentBlue);
-            recordingCanvas.DrawCircle(300, 300, 45, new SKPaint { Color = violet });
-
-            using var picture = pictureRecorder.EndRecording();
-
-            canvas.DrawPicture(picture);
-            using var outfile = File.OpenWrite(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "output.png"));
-            bitmap.Encode(SKEncodedImageFormat.Png, 100).SaveTo(outfile);
-
-            using var pictureOutfile = File.OpenWrite(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "output.skp"));
-            picture.Serialize(pictureOutfile);
-        }
+        var font = new SKFont(SKTypeface.Default, size * 0.5f);
+        font.Edging = SKFontEdging.SubpixelAntialias;
+        font.Hinting = SKFontHinting.Full;
+        canvas.DrawText($"ID: {number}", 400, 400, SKTextAlign.Center, font, textPaint);
     }
 }

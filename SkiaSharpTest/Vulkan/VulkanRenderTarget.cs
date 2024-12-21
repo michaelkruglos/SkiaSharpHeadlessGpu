@@ -116,7 +116,7 @@ public sealed unsafe class VulkanRenderTarget : ISurface
     {
         void* mappedMemory = MapMemory();
         byte[] imageData = new byte[_imageSize];
-        
+
         fixed (void* ptr = imageData)
         {
             Buffer.MemoryCopy(mappedMemory, ptr, _imageSize, _imageSize);
