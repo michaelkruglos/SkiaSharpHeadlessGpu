@@ -16,7 +16,6 @@ internal class Program
 {
     static async Task Main(string[] args)
     {
-        //using var factory = new VkSurfaceFactory();
         Console.WriteLine("Start!");
         const string outputDir = "output";
         var regularDir = Path.Combine(outputDir, "regular");
