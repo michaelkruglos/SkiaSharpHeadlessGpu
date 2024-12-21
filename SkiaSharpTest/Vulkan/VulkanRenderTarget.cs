@@ -126,20 +126,6 @@ public sealed unsafe class VulkanRenderTarget : ISurface
         return imageData;
     }
 
-    private byte[] GetBytes(SKEncodedImageFormat format, int quality)
-    {
-        var info = new SKImageInfo((int)_width, (int)_height, SKColorType.Rgba8888, SKAlphaType.Premul);
-        var imageData = GetImageData();
-
-        fixed (void* ptr = imageData)
-        {
-            using var skData = SKData.Create((IntPtr)ptr, (int)_imageSize);
-            using var skImage = SKImage.FromPixels(info, skData);
-            using var data = skImage.Encode(format, quality);
-            return data.ToArray();
-        }
-    }
-
     private void CreateImage()
     {
         // Image creation info
@@ -248,11 +234,19 @@ public sealed unsafe class VulkanRenderTarget : ISurface
         _grContext.Flush(submit: true, synchronous: true);
     }
 
-    public void SaveImage(string filePath, SKEncodedImageFormat format, int quality)
+    public byte[] GetPng(SKEncodedImageFormat format, int quality)
     {
         Flush();
-        var bytes = GetBytes(format, quality);
-        File.WriteAllBytes(filePath, bytes);
+        var info = new SKImageInfo((int)_width, (int)_height, SKColorType.Rgba8888, SKAlphaType.Premul);
+        var imageData = GetImageData();
+
+        fixed (void* ptr = imageData)
+        {
+            using var skData = SKData.Create((IntPtr)ptr, (int)_imageSize);
+            using var skImage = SKImage.FromPixels(info, skData);
+            using var data = skImage.Encode(format, quality);
+            return data.ToArray();
+        }
     }
 
     public void Dispose()

@@ -10,7 +10,7 @@ public interface ISurface : IDisposable
     SKCanvas Canvas { get; }
     void Flush();
     
-    public void SaveImage(string filePath, SKEncodedImageFormat format, int quality);
+    public byte[] GetPng(SKEncodedImageFormat format, int quality);
 }
 
 public sealed class SKSurfaceWrapper : ISurface
@@ -35,10 +35,11 @@ public sealed class SKSurfaceWrapper : ISurface
         _surfaceImplementation.Flush();
     }
 
-    public void SaveImage(string filePath, SKEncodedImageFormat format, int quality)
+    public byte[] GetPng(SKEncodedImageFormat format, int quality)
     {
-        using var data = _surfaceImplementation.Snapshot().Encode(format, quality);
-        using var fileStream = File.OpenWrite(filePath);
-        data.SaveTo(fileStream);
+        _surfaceImplementation.Flush(submit: true, synchronous: true);
+        using var data = _surfaceImplementation.Snapshot();
+        using var encoded = data.Encode(format, quality);
+        return encoded.ToArray();
     }
 }

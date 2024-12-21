@@ -60,26 +60,29 @@ internal class Program
             .ToArray();
 
         var sw = Stopwatch.StartNew();
-        // await foreach (var result in sequentialCpuRenderer.Render(new SKImageInfo(1920, 1080), frameMethods))
-        // {
-        //     result.Surface.SaveImage(Path.Join(regularDir, $"image{result.FrameIndex}.png"), SKEncodedImageFormat.Png, 100);
-        //     result.Surface.Dispose();
-        // }
-        // Console.WriteLine($"Sequential CPU renderer Elapsed: {sw.Elapsed}");
-        //
-        // sw.Restart();
-        // await foreach (var result in sequentialVkRenderer.Render(new SKImageInfo(1920, 1080), frameMethods))
-        // {
-        //     result.Surface.SaveImage(Path.Join(vulkanDir, $"image{result.FrameIndex}.png"), SKEncodedImageFormat.Png, 100);
-        //     result.Surface.Dispose();
-        // }
-        // Console.WriteLine($"Sequential Vulkan renderer Elapsed: {sw.Elapsed}");
+        await foreach (var result in sequentialCpuRenderer.Render(new SKImageInfo(1920, 1080), frameMethods))
+        {
+            var png = result.Surface.GetPng(SKEncodedImageFormat.Png, 100);
+            await File.WriteAllBytesAsync(Path.Join(regularDir, $"image{result.FrameIndex}.png"), png);
+            result.Surface.Dispose();
+        }
+
+        Console.WriteLine($"Sequential CPU renderer Elapsed: {sw.Elapsed}");
+        
+        sw.Restart();
+        await foreach (var result in sequentialVkRenderer.Render(new SKImageInfo(1920, 1080), frameMethods))
+        {
+            var png = result.Surface.GetPng(SKEncodedImageFormat.Png, 100);
+            await File.WriteAllBytesAsync(Path.Join(vulkanDir, $"image{result.FrameIndex}.png"), png);
+            result.Surface.Dispose();
+        }
+        Console.WriteLine($"Sequential Vulkan renderer Elapsed: {sw.Elapsed}");
 
         sw.Restart();
         await foreach (var result in parallelCpuRenderer.Render(new SKImageInfo(1920, 1080), frameMethods))
         {
-            result.Surface.SaveImage(Path.Join(regularDir, $"image{result.FrameIndex}.png"), SKEncodedImageFormat.Png, 100);
-            Console.WriteLine($"Image {result.FrameIndex} has been saved in {sw.Elapsed}");
+            var png = result.Surface.GetPng(SKEncodedImageFormat.Png, 100);
+            await File.WriteAllBytesAsync(Path.Join(regularDir, $"image{result.FrameIndex}.png"), png);
             result.Surface.Dispose();
         }
         Console.WriteLine($"Parallel CPU renderer Elapsed: {sw.Elapsed}");
@@ -87,8 +90,8 @@ internal class Program
         sw.Restart();
         await foreach (var result in parallelVkRenderer.Render(new SKImageInfo(1920, 1080), frameMethods))
         {
-            result.Surface.SaveImage(Path.Join(vulkanDir, $"image{result.FrameIndex}.png"), SKEncodedImageFormat.Png, 100);
-            Console.WriteLine($"Image {result.FrameIndex} has been saved in {sw.Elapsed}");
+            var png = result.Surface.GetPng(SKEncodedImageFormat.Png, 100);
+            await File.WriteAllBytesAsync(Path.Join(vulkanDir, $"image{result.FrameIndex}.png"), png);
             result.Surface.Dispose();
         }
         Console.WriteLine($"Parallel Vulkan renderer Elapsed: {sw.Elapsed}");
@@ -104,7 +107,8 @@ internal class Program
             Directory.CreateDirectory(folder);
         }
 
-        surface.SaveImage(Path.Join(folder, fileName), SKEncodedImageFormat.Png, 100);
+        var png = surface.GetPng(SKEncodedImageFormat.Png, 100);
+        File.WriteAllBytes(Path.Join(folder, fileName), png);
     }
 
     private static void DrawCircle(ISurface surface, int number, int width, int height)
